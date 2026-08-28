@@ -30,9 +30,17 @@ export async function updateSession(request: NextRequest) {
   });
 
   // Refreshes the JWT if it's near expiry — must run on every proxied request.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Wrapped so an unconfigured/unreachable Supabase degrades to "no session"
+  // instead of 500-ing every page.
+  let user: import("@supabase/supabase-js").User | null = null;
+  try {
+    const {
+      data: { user: sessionUser },
+    } = await supabase.auth.getUser();
+    user = sessionUser;
+  } catch {
+    user = null;
+  }
 
   const { pathname } = request.nextUrl;
 
