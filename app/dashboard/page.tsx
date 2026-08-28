@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { logout } from "@/app/(auth)/actions";
 import { createClient } from "@/lib/supabase/server";
+import DocumentsSection from "./documents-section";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -35,30 +36,17 @@ export default async function DashboardPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 py-10">
-        <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Documents, widget setup and chat logs will live here — coming in the
-          next build phases.
-        </p>
-
-        <div className="mt-6 grid gap-4 sm:grid-cols-3">
-          {[
-            { title: "Documents", body: "Upload FAQs & policy docs" },
-            { title: "Chat widget", body: "Embed snippet for your site" },
-            { title: "Chat logs", body: "Conversations & escalations" },
-          ].map((card) => (
-            <div
-              key={card.title}
-              className="rounded-xl border border-gray-200 bg-white p-5"
-            >
-              <p className="font-medium text-gray-900">{card.title}</p>
-              <p className="mt-1 text-sm text-gray-500">{card.body}</p>
-            </div>
-          ))}
+      <main className="mx-auto max-w-5xl space-y-8 px-4 py-10">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Manage your knowledge base, widget, and customer conversations.
+          </p>
         </div>
 
-        <div className="mt-8 rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-900">
+        <DocumentsSection />
+
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-900">
           Signed in as <strong>{user.email}</strong>
           {business?.escalation_email && (
             <>

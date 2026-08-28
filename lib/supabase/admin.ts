@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/env";
+import { SUPABASE_URL } from "@/lib/env";
 
 // Service-role client: bypasses RLS. Server-side only — never import from
 // client components. Used for widget writes (public visitors have no session)
