@@ -1,31 +1,39 @@
 // Embedding providers.
 //
-// Default: Hugging Face Inference API with intfloat/multilingual-e5-large.
-// Why: Claude has no embeddings API, and this model is free-tier, 1024-dim,
-// and trained on 100+ languages — it handles Urdu script AND Roman Urdu,
-// which English-centric embedders handle weakly. E5 models expect an
-// instruction prefix ("query: " / "passage: ") for best retrieval quality.
+// Default: Pinecone hosted inference with intfloat/multilingual-e5-large —
+// the same model we originally chose, served by the vendor we already use for
+// vectors (one fewer account, reliable endpoint). It is multilingual-first and
+// handles Urdu script AND Roman Urdu, which English-centric embedders handle
+// weakly. input_type ("query"/"passage") applies the e5 instruction prefixes
+// server-side.
 //
-// Fallback: OpenAI text-embedding-3-small (~$0.02/1M tokens) — set
-// EMBEDDING_PROVIDER=openai and OPENAI_API_KEY.
+// Alternatives: EMBEDDING_PROVIDER=hf (Hugging Face Inference API, free tier)
+// or EMBEDDING_PROVIDER=openai (text-embedding-3-small, ~$0.02/1M tokens).
 
 export type EmbeddingKind = "query" | "passage";
 
-const HF_MODEL = "intfloat/multilingual-e5-large";
+const E5_MODEL = "multilingual-e5-large";
+const PINECONE_API_VERSION = "2026-04";
+const PINECONE_BATCH = 64;
 const HF_BATCH = 8;
 const OPENAI_MODEL = "text-embedding-3-small";
 const OPENAI_BATCH = 64;
+
+type Provider = "pinecone" | "hf" | "openai";
 
 export function embeddingDimension(): number {
   return provider() === "openai" ? 1540 : 1024;
 }
 
-function provider(): "hf" | "openai" {
-  return process.env.EMBEDDING_PROVIDER === "openai" ? "openai" : "hf";
+function provider(): Provider {
+  const p = process.env.EMBEDDING_PROVIDER;
+  if (p === "hf" || p === "openai") return p;
+  return "pinecone";
 }
 
 function withPrefix(text: string, kind: EmbeddingKind): string {
-  // E5 instruction prefixes; harmless for OpenAI.
+  // Hugging Face e5 endpoints expect manual instruction prefixes; Pinecone
+  // applies them via input_type, OpenAI needs none.
   return provider() === "hf"
     ? kind === "query"
       ? `query: ${text}`
@@ -40,16 +48,52 @@ export async function embed(
   if (texts.length === 0) return [];
   const prefixed = texts.map((t) => withPrefix(t, kind));
 
-  if (provider() === "openai") {
-    return embedOpenAI(prefixed);
-  }
-  return embedHF(prefixed);
+  const p = provider();
+  if (p === "openai") return embedOpenAI(prefixed);
+  if (p === "hf") return embedHF(prefixed);
+  return embedPinecone(prefixed, kind);
 }
 
 export async function embedOne(text: string, kind: EmbeddingKind): Promise<number[]> {
   const [vec] = await embed([text], kind);
   if (!vec) throw new Error("Embedding provider returned no vector");
   return vec;
+}
+
+async function embedPinecone(
+  inputs: string[],
+  kind: EmbeddingKind
+): Promise<number[][]> {
+  const key = process.env.PINECONE_API_KEY;
+  if (!key) throw new Error("PINECONE_API_KEY is not set");
+
+  const out: number[][] = [];
+  for (let i = 0; i < inputs.length; i += PINECONE_BATCH) {
+    const batch = inputs.slice(i, i + PINECONE_BATCH);
+    const res = await fetch("https://api.pinecone.io/embed", {
+      method: "POST",
+      headers: {
+        "Api-Key": key,
+        "X-Pinecone-Api-Version": PINECONE_API_VERSION,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: E5_MODEL,
+        parameters: { input_type: kind === "query" ? "query" : "passage" },
+        inputs: batch.map((text) => ({ text })),
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(
+        `Pinecone embeddings failed (${res.status}): ${(await res.text()).slice(0, 300)}`
+      );
+    }
+    const data = (await res.json()) as {
+      data: { values?: number[] }[];
+    };
+    out.push(...data.data.map((d) => d.values ?? []));
+  }
+  return out;
 }
 
 async function embedHF(inputs: string[]): Promise<number[][]> {
@@ -60,7 +104,7 @@ async function embedHF(inputs: string[]): Promise<number[][]> {
   for (let i = 0; i < inputs.length; i += HF_BATCH) {
     const batch = inputs.slice(i, i + HF_BATCH);
     const res = await fetch(
-      `https://api-inference.huggingface.co/models/${HF_MODEL}`,
+      `https://api-inference.huggingface.co/models/${E5_MODEL}`,
       {
         method: "POST",
         headers: {
