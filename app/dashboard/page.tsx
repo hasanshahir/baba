@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { logout } from "@/app/(auth)/actions";
 import { createClient } from "@/lib/supabase/server";
 import DocumentsSection from "./documents-section";
+import EmbedSnippet from "./embed-snippet";
+import ChatsSection from "./chats-section";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -44,7 +46,9 @@ export default async function DashboardPage() {
           </p>
         </div>
 
+        <EmbedSnippet businessId={user.id} />
         <DocumentsSection />
+        <ChatsSection />
 
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-900">
           Signed in as <strong>{user.email}</strong>
