@@ -83,10 +83,15 @@ export async function GET(req: NextRequest) {
 
   const ref = new URL(SUPABASE_URL).hostname.split(".")[0];
   const res = NextResponse.redirect(new URL("/dashboard", req.url));
-  res.cookies.set(`sb-${ref}-auth-token`, b64url(JSON.stringify(session)), {
-    path: "/",
-    sameSite: "lax",
-    maxAge: WEEK,
-  });
+  // @supabase/ssr base64url cookie encoding = "base64-" prefix + base64url(JSON).
+  res.cookies.set(
+    `sb-${ref}-auth-token`,
+    "base64-" + b64url(JSON.stringify(session)),
+    {
+      path: "/",
+      sameSite: "lax",
+      maxAge: WEEK,
+    }
+  );
   return res;
 }
