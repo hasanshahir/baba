@@ -10,7 +10,7 @@ import type { RetrievedChunk } from "@/lib/pinecone";
 // Claude can only answer from the supplied context, and it explicitly reports
 // when the context is insufficient.
 
-const DEFAULT_MODEL = "claude-3-5-haiku-latest";
+const DEFAULT_MODEL = "claude-haiku-4-5";
 
 export type DetectedLanguage = "ur" | "roman-ur" | "en" | "other";
 
@@ -53,7 +53,7 @@ STRICT GROUNDING RULES:
 3. If the CONTEXT does not contain enough information to answer, set "answerable" to false. Do not guess.
 4. Reply in the SAME language AND script the customer used in their latest message:
    - If they wrote Urdu in Urdu script, reply in Urdu script.
-   - If they wrote Roman Urdu (Urdu words in Latin letters), reply in Roman Urdu.
+   - If they wrote Roman Urdu (Urdu words in Latin letters), reply in Roman Urdu using LATIN letters ONLY, e.g. "Hamari delivery 2-3 working days mein ho jati hai." NEVER use Urdu script in a Roman Urdu reply.
    - If they wrote English, reply in English.
 5. Be warm, concise and helpful. Keep answers short (a few sentences) unless the context requires more.
 
