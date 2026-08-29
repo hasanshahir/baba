@@ -32,7 +32,11 @@ export async function GET(req: NextRequest) {
   }
 
   if (seed) {
-    const file = path.join(process.cwd(), "sample", "urdu-faq.txt");
+    const ALLOWED_FILES = ["urdu-faq.txt", "hkh-faq.txt"];
+    const requested = req.nextUrl.searchParams.get("file") ?? "urdu-faq.txt";
+    const fileName = ALLOWED_FILES.includes(requested) ? requested : "urdu-faq.txt";
+    const docId = fileName.replace(/\.txt$/, "");
+    const file = path.join(process.cwd(), "sample", fileName);
     const text = readFileSync(file, "utf-8");
     const chunks = chunkText(text);
     const vectors = await embed(
@@ -42,18 +46,18 @@ export async function GET(req: NextRequest) {
     await upsertChunks(
       businessId,
       chunks.map((c, i) => ({
-        id: `sample-faq:${c.index}`,
+        id: `${docId}:${c.index}`,
         values: vectors[i],
         meta: {
           businessId,
-          docId: "sample-faq",
-          filename: "urdu-faq.txt",
+          docId,
+          filename: fileName,
           chunkIndex: c.index,
           text: c.text,
         },
       }))
     );
-    return NextResponse.json({ seeded: true, chunks: chunks.length });
+    return NextResponse.json({ seeded: true, file: fileName, chunks: chunks.length });
   }
 
   if (!q) {
