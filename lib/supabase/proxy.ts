@@ -29,15 +29,15 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  // Refreshes the JWT if it's near expiry — must run on every proxied request.
-  // Wrapped so an unconfigured/unreachable Supabase degrades to "no session"
-  // instead of 500-ing every page.
+  // getSession() decodes the JWT locally (no auth-service round-trip), so the
+  // guard keeps working even when GoTrue is unreachable. RLS still enforces
+  // data access with the JWT's claims.
   let user: import("@supabase/supabase-js").User | null = null;
   try {
     const {
-      data: { user: sessionUser },
-    } = await supabase.auth.getUser();
-    user = sessionUser;
+      data: { session },
+    } = await supabase.auth.getSession();
+    user = session?.user ?? null;
   } catch {
     user = null;
   }
