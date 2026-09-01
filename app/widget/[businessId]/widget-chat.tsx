@@ -107,6 +107,18 @@ export default function WidgetChat({
           ...m,
           { role: "assistant", content: data.answer },
         ]);
+
+        // Agentic actions: hand the sanitized action to widget.js on the host
+        // page, which performs the actual navigation / form fill. The small
+        // delay lets the visitor read the confirmation bubble first.
+        if (data.action && window.self !== window.top) {
+          setTimeout(() => {
+            window.parent.postMessage(
+              { source: "guftagu", type: "action", action: data.action },
+              "*"
+            );
+          }, 700);
+        }
       } catch (err) {
         setMessages((m) => [
           ...m,

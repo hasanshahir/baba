@@ -5,6 +5,11 @@ import {
   generateGroundedAnswer,
   type DetectedLanguage,
 } from "@/lib/rag/generate";
+import {
+  getSiteMap,
+  sanitizeAction,
+  type WidgetAction,
+} from "@/lib/actions/site-map";
 
 // The RAG pipeline: embed the query → retrieve the business's top-k chunks →
 // generate a grounded answer → compute a confidence score that drives
@@ -25,6 +30,7 @@ export interface RAGResult {
   confidence: number; // 0..1, for display + ranking
   lowConfidence: boolean; // true → escalate to the business
   chunks: RetrievedChunk[];
+  action?: WidgetAction; // sanitized site action (navigate / prefill), if any
 }
 
 function clamp01(x: number): number {
@@ -47,21 +53,37 @@ export async function runRAG(opts: {
   const chunks = await queryChunks(businessId, queryVector, RETRIEVE_TOP_K);
   const topScore = chunks.length > 0 ? chunks[0].score : 0;
 
+  const siteMap = getSiteMap(businessId);
   const grounded = await generateGroundedAnswer({
     companyName,
     question,
     chunks,
     history,
+    siteMap,
   });
+
+  // Whitelist the model's action against the site map; anything unknown is dropped.
+  const action =
+    siteMap && grounded.rawAction !== undefined
+      ? sanitizeAction(siteMap, grounded.rawAction)
+      : undefined;
 
   const norm = retrievalScoreNorm(topScore);
   // If the model couldn't answer from context, confidence stays low regardless
   // of retrieval; otherwise blend retrieval strength with the grounded answer.
-  const confidence = grounded.answerable
+  let confidence = grounded.answerable
     ? clamp01(0.5 + 0.5 * norm)
     : clamp01(0.15 * norm);
 
-  const lowConfidence = !grounded.answerable || topScore < RELEVANCE_FLOOR;
+  let lowConfidence = !grounded.answerable || topScore < RELEVANCE_FLOOR;
+
+  if (action) {
+    // Action turns ("show me the graphic design services", "fill the form for
+    // me") are handled by the site map, not the FAQ corpus — weak retrieval
+    // here must not trigger an escalation email.
+    lowConfidence = false;
+    confidence = Math.max(confidence, 0.9);
+  }
 
   return {
     answer: grounded.answer,
@@ -70,5 +92,6 @@ export async function runRAG(opts: {
     confidence,
     lowConfidence,
     chunks,
+    action,
   };
 }

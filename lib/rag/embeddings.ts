@@ -70,28 +70,54 @@ async function embedPinecone(
   const out: number[][] = [];
   for (let i = 0; i < inputs.length; i += PINECONE_BATCH) {
     const batch = inputs.slice(i, i + PINECONE_BATCH);
-    const res = await fetch("https://api.pinecone.io/embed", {
-      method: "POST",
-      headers: {
-        "Api-Key": key,
-        "X-Pinecone-Api-Version": PINECONE_API_VERSION,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: E5_MODEL,
-        parameters: { input_type: kind === "query" ? "query" : "passage" },
-        inputs: batch.map((text) => ({ text })),
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(
-        `Pinecone embeddings failed (${res.status}): ${(await res.text()).slice(0, 300)}`
-      );
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
+      }
+      let res: Response;
+      try {
+        res = await fetch("https://api.pinecone.io/embed", {
+          method: "POST",
+          // Hard cap: a hung upstream once wedged the whole server. Normal
+          // calls finish in ~1-3s; Vercel's function timeout is much higher.
+          signal: AbortSignal.timeout(30_000),
+          headers: {
+            "Api-Key": key,
+            "X-Pinecone-Api-Version": PINECONE_API_VERSION,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: E5_MODEL,
+            parameters: { input_type: kind === "query" ? "query" : "passage" },
+            inputs: batch.map((text) => ({ text })),
+          }),
+        });
+      } catch (err) {
+        // Network error / timeout — retryable.
+        lastError =
+          err instanceof Error ? err : new Error("Pinecone embed request failed");
+        continue;
+      }
+      if (!res.ok && res.status >= 500 && attempt < 2) {
+        lastError = new Error(
+          `Pinecone embeddings failed (${res.status}): ${(await res.text()).slice(0, 200)}`
+        );
+        continue;
+      }
+      if (!res.ok) {
+        throw new Error(
+          `Pinecone embeddings failed (${res.status}): ${(await res.text()).slice(0, 300)}`
+        );
+      }
+      const data = (await res.json()) as {
+        data: { values?: number[] }[];
+      };
+      out.push(...data.data.map((d) => d.values ?? []));
+      lastError = null;
+      break;
     }
-    const data = (await res.json()) as {
-      data: { values?: number[] }[];
-    };
-    out.push(...data.data.map((d) => d.values ?? []));
+    if (lastError) throw lastError;
   }
   return out;
 }

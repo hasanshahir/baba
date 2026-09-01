@@ -199,5 +199,6 @@ export async function POST(req: NextRequest) {
     escalated: result.lowConfidence,
     status: nextStatus,
     emailSent,
+    action: result.action ?? null,
   });
 }

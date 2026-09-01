@@ -77,6 +77,7 @@ export async function GET(req: NextRequest) {
     language: result.language,
     confidence: Number(result.confidence.toFixed(3)),
     lowConfidence: result.lowConfidence,
+    action: result.action ?? null,
     topChunks: result.chunks.slice(0, 3).map((c) => ({
       score: Number(c.score.toFixed(4)),
       text: c.text.slice(0, 200),

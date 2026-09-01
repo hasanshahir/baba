@@ -111,4 +111,171 @@
 
   document.body.appendChild(panel);
   document.body.appendChild(btn);
+
+  // ---- Agentic actions (navigate / lead-form prefill) ----
+  // The chat iframe asks us (the host page script) to take the visitor to an
+  // exact page/section or fill the site's lead form. Only relative paths are
+  // ever accepted, so a visitor can never be redirected off-site.
+
+  var PREFILL_KEY = "guftagu_pending_prefill";
+
+  function normalizePath(p) {
+    if (typeof p !== "string") return null;
+    if (p.charAt(0) !== "/" || p.indexOf("//") === 0) return null;
+    return p.split(/[?#]/)[0];
+  }
+
+  function isFillable(el) {
+    var type = el ? el.getAttribute("type") : null;
+    return (
+      el &&
+      (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT") &&
+      !el.disabled &&
+      !el.readOnly &&
+      type !== "hidden" &&
+      type !== "submit" &&
+      type !== "checkbox" &&
+      type !== "radio"
+    );
+  }
+
+  function findField(key) {
+    if (typeof key !== "string" || !key || key.length > 100) return null;
+    var el = document.getElementById(key);
+    if (isFillable(el)) return el;
+    var byName = document.querySelector(
+      'input[name="' + key + '"], textarea[name="' + key + '"], select[name="' + key + '"]'
+    );
+    if (isFillable(byName)) return byName;
+    var labels = document.querySelectorAll("label");
+    for (var i = 0; i < labels.length; i++) {
+      var text = (labels[i].textContent || "").trim().toLowerCase();
+      if (text === key.toLowerCase()) {
+        var target = labels[i].htmlFor
+          ? document.getElementById(labels[i].htmlFor)
+          : labels[i].querySelector("input, textarea, select");
+        if (isFillable(target)) return target;
+      }
+    }
+    return null;
+  }
+
+  function setNativeValue(el, value) {
+    // Use the element prototype's native setter so frameworks (React etc.)
+    // that intercept value assignment still see the change.
+    var proto =
+      el.tagName === "TEXTAREA"
+        ? window.HTMLTextAreaElement.prototype
+        : el.tagName === "SELECT"
+          ? window.HTMLSelectElement.prototype
+          : window.HTMLInputElement.prototype;
+    var desc = Object.getOwnPropertyDescriptor(proto, "value");
+    if (desc && desc.set) desc.set.call(el, value);
+    else el.value = value;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function flash(el) {
+    var prev = el.style.boxShadow;
+    el.style.transition = "box-shadow .3s ease";
+    el.style.boxShadow = "0 0 0 3px " + ACCENT + "66";
+    setTimeout(function () {
+      el.style.boxShadow = prev;
+    }, 2000);
+  }
+
+  function fillForm(fields) {
+    var filled = [];
+    for (var key in fields) {
+      if (!Object.prototype.hasOwnProperty.call(fields, key)) continue;
+      var el = findField(key);
+      if (!el) continue;
+      var value = String(fields[key] == null ? "" : fields[key]);
+      if (!value) continue;
+      if (el.tagName === "SELECT") {
+        var hasOption = false;
+        for (var i = 0; i < el.options.length; i++) {
+          if (el.options[i].value === value) {
+            hasOption = true;
+            break;
+          }
+        }
+        if (!hasOption) continue;
+      }
+      setNativeValue(el, value);
+      filled.push(el);
+    }
+    if (filled.length > 0) {
+      filled[0].scrollIntoView({ behavior: "smooth", block: "center" });
+      for (var j = 0; j < filled.length; j++) flash(filled[j]);
+    }
+    return filled.length;
+  }
+
+  // The host page may hydrate its form after our script runs, so retry.
+  function runPrefill(action) {
+    var tries = 0;
+    (function attempt() {
+      if (fillForm(action.fields) > 0) return;
+      if (++tries < 10) setTimeout(attempt, 500);
+    })();
+  }
+
+  function samePath(a, b) {
+    return a.replace(/\/+$/, "") === b.replace(/\/+$/, "");
+  }
+
+  function executeAction(action) {
+    if (!action || typeof action !== "object") return;
+    if (action.type === "navigate") {
+      var path = normalizePath(action.path);
+      if (!path) return;
+      var anchor =
+        typeof action.anchor === "string" && /^[\w-]+$/.test(action.anchor)
+          ? "#" + action.anchor
+          : "";
+      setTimeout(function () {
+        window.location.href = path + anchor;
+      }, 800);
+    } else if (action.type === "prefill") {
+      var formPath = normalizePath(action.path);
+      if (!formPath || !action.fields || typeof action.fields !== "object")
+        return;
+      if (samePath(window.location.pathname, formPath)) {
+        setTimeout(function () {
+          runPrefill(action);
+        }, 400);
+      } else {
+        // Move to the form's page first; the fill survives via sessionStorage.
+        try {
+          sessionStorage.setItem(PREFILL_KEY, JSON.stringify(action));
+        } catch (e) {
+          /* private mode — still navigate */
+        }
+        setTimeout(function () {
+          window.location.href = formPath;
+        }, 800);
+      }
+    }
+  }
+
+  window.addEventListener("message", function (e) {
+    // Only trust our own iframe; never execute instructions from elsewhere.
+    if (e.origin !== origin) return;
+    var d = e.data;
+    if (!d || d.source !== "guftagu" || d.type !== "action") return;
+    executeAction(d.action);
+  });
+
+  // Complete a prefill that was stashed before a page navigation.
+  try {
+    var pending = sessionStorage.getItem(PREFILL_KEY);
+    if (pending) {
+      sessionStorage.removeItem(PREFILL_KEY);
+      runPrefill(JSON.parse(pending));
+    }
+  } catch (e) {
+    /* ignore malformed storage */
+  }
 })();
